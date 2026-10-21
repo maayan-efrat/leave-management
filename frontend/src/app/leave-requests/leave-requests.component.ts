@@ -9,7 +9,7 @@ import {
   ValidationErrors,
   Validators
 } from '@angular/forms';
-import { Employee } from '../models/leave-request.model';
+import { Employee, LeaveRequest } from '../models/leave-request.model';
 
 // Number of calendar days between two 'yyyy-MM-dd' values, inclusive (matches the API).
 // Parsed as UTC so local time zones and DST cannot shift the result by a day.
@@ -114,12 +114,30 @@ export class LeaveRequestsComponent implements OnInit {
     });
   }
 
-  // Wired up by the candidate as part of the assignment.
-  approve(id: number): void {
-    // TODO (candidate): call POST /api/leave-requests/{id}/approve
-    // and handle loading / error / success without a generic alert.
-    this.http.post<any>(this.apiUrl + '/' + id + '/approve', {}).subscribe(() => {
-      this.load();
+  // Per row, so approving one request does not lock or hide the others.
+  approving = new Set<number>();
+  approveErrors = new Map<number, string>();
+  // Rows that show a success message until the user closes it.
+  approved = new Set<number>();
+
+  approve(request: LeaveRequest): void {
+    this.approving.add(request.id);
+    this.approveErrors.delete(request.id);
+    this.http.post<LeaveRequest>(this.apiUrl + '/' + request.id + '/approve', {}).subscribe({
+      next: (updated) => {
+        this.approving.delete(request.id);
+        // Update only this row from the response instead of reloading the whole list.
+        request.status = updated.status;
+        this.approved.add(request.id);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.approving.delete(request.id);
+        // Business errors (already approved, not enough balance) come back as plain text.
+        this.approveErrors.set(
+          request.id,
+          typeof err.error === 'string' ? err.error : 'Could not approve the request'
+        );
+      }
     });
   }
 

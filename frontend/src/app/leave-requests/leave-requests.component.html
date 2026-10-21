@@ -70,7 +70,18 @@
       <td>{{ r.days }}</td>
       <td>{{ statusLabel(r.status) }}</td>
       <td>
-        <button *ngIf="r.status == 0" (click)="approve(r.id)">Approve</button>
+        <button *ngIf="r.status == 0" (click)="approve(r)" [disabled]="approving.has(r.id)">
+          <span class="spinner" *ngIf="approving.has(r.id)"></span>
+          {{ approving.has(r.id) ? 'Approving...' : 'Approve' }}
+        </button>
+        <div class="notice success" *ngIf="approved.has(r.id)">
+          Approved successfully
+          <button type="button" class="close" (click)="approved.delete(r.id)" aria-label="Close">&times;</button>
+        </div>
+        <div class="notice error" *ngIf="approveErrors.has(r.id)">
+          {{ approveErrors.get(r.id) }}
+          <button type="button" class="close" (click)="approveErrors.delete(r.id)" aria-label="Close">&times;</button>
+        </div>
       </td>
     </tr>
   </tbody>
