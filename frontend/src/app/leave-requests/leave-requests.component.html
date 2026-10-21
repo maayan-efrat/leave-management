@@ -1,6 +1,49 @@
 <h2>Leave Requests</h2>
 
-<!-- TODO (candidate): add the "new request" form here, with validation. -->
+<form class="request-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+  <h3>New request</h3>
+
+  <label>
+    Employee
+    <select formControlName="employeeId">
+      <option [ngValue]="null" disabled>-- Select employee --</option>
+      <option *ngFor="let e of employees" [ngValue]="e.id">{{ e.name }}</option>
+    </select>
+  </label>
+  <div class="error" *ngIf="showError('employeeId')">Please select an employee.</div>
+
+  <label>
+    Leave type
+    <select formControlName="type">
+      <option [ngValue]="null" disabled>-- Select leave type --</option>
+      <option [ngValue]="0">Vacation</option>
+      <option [ngValue]="1">Sick</option>
+      <option [ngValue]="2">Unpaid</option>
+    </select>
+  </label>
+  <div class="error" *ngIf="showError('type')">Please select a leave type.</div>
+
+  <label>
+    Start date
+    <input type="date" formControlName="startDate" />
+  </label>
+  <div class="error" *ngIf="showError('startDate')">Please select a start date.</div>
+
+  <label>
+    End date
+    <input type="date" formControlName="endDate" />
+  </label>
+  <div class="error" *ngIf="showError('endDate')">Please select an end date.</div>
+  <div class="error" *ngIf="showDateRangeError">Start date cannot be after the end date.</div>
+
+  <div class="days" *ngIf="days !== null && days > 0">Total days: {{ days }}</div>
+
+  <div class="error" *ngIf="submitError">{{ submitError }}</div>
+
+  <button type="submit" [disabled]="submitting">
+    {{ submitting ? 'Submitting...' : 'Submit' }}
+  </button>
+</form>
 
 <div *ngIf="loading">Loading...</div>
 

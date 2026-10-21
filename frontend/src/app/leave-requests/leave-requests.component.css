@@ -9,3 +9,75 @@ button {
 button:hover {
   background: #186faf;
 }
+
+button:disabled {
+  background: #9fb3c8;
+  cursor: default;
+}
+
+.request-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 360px;
+  margin-bottom: 24px;
+  padding: 20px;
+  background: #fff;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(16, 42, 67, 0.08);
+}
+
+.request-form h3 {
+  margin: 0 0 4px;
+  color: #243b53;
+}
+
+.request-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #486581;
+}
+
+.request-form select,
+.request-form input {
+  padding: 8px 10px;
+  font: inherit;
+  font-weight: normal;
+  color: #1f2933;
+  border: 1px solid #bcccdc;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.request-form select:focus,
+.request-form input:focus {
+  outline: none;
+  border-color: #2680c2;
+  box-shadow: 0 0 0 2px rgba(38, 128, 194, 0.2);
+}
+
+/* Angular adds these classes; highlight a field only after the user touched it. */
+.request-form .ng-invalid.ng-touched {
+  border-color: #c62828;
+}
+
+.request-form .error {
+  margin-top: -4px;
+  color: #c62828;
+  font-size: 0.8rem;
+}
+
+.request-form .days {
+  font-size: 0.875rem;
+  color: #486581;
+}
+
+.request-form button[type="submit"] {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 8px 20px;
+}
