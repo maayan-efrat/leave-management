@@ -1,5 +1,6 @@
 using LeaveManagement.Api.Controllers;
 using LeaveManagement.Api.Models;
+using LeaveManagement.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -24,7 +25,7 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         db.Employees.Add(emp);
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var controller = new LeaveRequestsController(new LeaveRequestService(db));
 
         // Act: request 3 days, well within the quota.
         var result = controller.Create(new CreateLeaveRequestDto
@@ -60,7 +61,7 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         });
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var controller = new LeaveRequestsController(new LeaveRequestService(db));
 
         // Act: request 3 more days — 18 + 3 = 21 > 20.
         var result = controller.Create(new CreateLeaveRequestDto
@@ -96,7 +97,7 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         });
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var controller = new LeaveRequestsController(new LeaveRequestService(db));
 
         // Act: request the last 2 days — 18 + 2 = 20.
         var result = controller.Create(new CreateLeaveRequestDto
@@ -132,7 +133,7 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         });
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var controller = new LeaveRequestsController(new LeaveRequestService(db));
 
         // Act: request 6 more days — 15 + 6 = 21 > 20.
         var result = controller.Create(new CreateLeaveRequestDto
@@ -168,7 +169,7 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         });
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var controller = new LeaveRequestsController(new LeaveRequestService(db));
 
         // Act: request 5 days this year.
         var result = controller.Create(new CreateLeaveRequestDto
@@ -192,7 +193,7 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         db.Employees.Add(emp);
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var controller = new LeaveRequestsController(new LeaveRequestService(db));
 
         // Act: end date is 8 days before the start date.
         var result = controller.Create(new CreateLeaveRequestDto
@@ -217,7 +218,7 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         db.Employees.Add(emp);
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var controller = new LeaveRequestsController(new LeaveRequestService(db));
 
         // Act: 23:00 to 01:00 next day is two calendar days, not one.
         var result = controller.Create(new CreateLeaveRequestDto
@@ -254,7 +255,7 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         db.LeaveRequests.Add(request);
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var controller = new LeaveRequestsController(new LeaveRequestService(db));
 
         // Act
         var result = controller.Approve(request.Id);
@@ -270,7 +271,7 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
     {
         // Arrange
         using var db = _database.NewDb();
-        var controller = new LeaveRequestsController(db);
+        var controller = new LeaveRequestsController(new LeaveRequestService(db));
 
         // Act
         var result = controller.Approve(12345);
@@ -302,7 +303,7 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         db.LeaveRequests.Add(request);
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var controller = new LeaveRequestsController(new LeaveRequestService(db));
 
         // Act
         var result = controller.Approve(request.Id);
@@ -344,7 +345,7 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         db.LeaveRequests.Add(pending);
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var controller = new LeaveRequestsController(new LeaveRequestService(db));
 
         // Act: 10 + 15 = 25 > 20.
         var result = controller.Approve(pending.Id);
@@ -399,7 +400,7 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
 
         // Act: approval #2 runs meanwhile on another connection.
         using var other = _database.ConnectAgain();
-        var approveSecond = Task.Run(() => new LeaveRequestsController(other).Approve(second.Id));
+        var approveSecond = Task.Run(() => new LeaveRequestsController(new LeaveRequestService(other)).Approve(second.Id));
 
         // Assert: it waits for the lock instead of reading the uncommitted state...
         var finishedFirst = await Task.WhenAny(approveSecond, Task.Delay(TimeSpan.FromSeconds(1)));
