@@ -28,7 +28,12 @@ public sealed class TestDatabase : IAsyncLifetime
     {
         if (UseSqlite) return;
 
-        _postgres = new PostgreSqlBuilder("postgres:16-alpine").Build();
+        // A dedicated database name: NewDb() drops and recreates it per test, and
+        // Postgres refuses to drop the default "postgres" database that EF connects
+        // to as its maintenance database (55006: cannot drop the currently open database).
+        _postgres = new PostgreSqlBuilder("postgres:16-alpine")
+            .WithDatabase("leave_tests")
+            .Build();
         await _postgres.StartAsync();
     }
 
