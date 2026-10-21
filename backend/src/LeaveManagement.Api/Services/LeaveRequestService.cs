@@ -25,12 +25,10 @@ public class LeaveRequestService
 
     public List<LeaveRequest> Search(string name)
     {
-        // Build a quick query to filter by the employee name.
-        var sql = "SELECT * FROM \"LeaveRequests\" WHERE \"EmployeeId\" IN " +
-                  "(SELECT \"Id\" FROM \"Employees\" WHERE \"Name\" LIKE '%" + name + "%')";
-
+        // LINQ sends the name as a parameter, so it is only ever compared as text.
+        // Concatenating it into raw SQL let the caller rewrite the query (SQL injection).
         return _db.LeaveRequests
-            .FromSqlRaw(sql)
+            .Where(r => r.Employee!.Name.Contains(name))
             .ToList();
     }
 

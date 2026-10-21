@@ -235,6 +235,54 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
     }
 
     [Fact]
+    public void Search_ByName_ReturnsOnlyThatEmployeesRequests()
+    {
+        // Arrange
+        using var db = _database.NewDb();
+        var dana = new Employee { Name = "Dana Levi", AnnualQuota = 20 };
+        var yossi = new Employee { Name = "Yossi Cohen", AnnualQuota = 14 };
+        db.Employees.AddRange(dana, yossi);
+        db.SaveChanges();
+
+        db.LeaveRequests.AddRange(
+            new LeaveRequest { EmployeeId = dana.Id, Type = LeaveType.Vacation, StartDate = new DateTime(2026, 3, 1), EndDate = new DateTime(2026, 3, 1), Days = 1 },
+            new LeaveRequest { EmployeeId = yossi.Id, Type = LeaveType.Vacation, StartDate = new DateTime(2026, 3, 1), EndDate = new DateTime(2026, 3, 1), Days = 1 });
+        db.SaveChanges();
+
+        var controller = new LeaveRequestsController(new LeaveRequestService(db));
+
+        // Act
+        var result = controller.Search("Dana");
+
+        // Assert
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var found = Assert.Single(Assert.IsType<List<LeaveRequest>>(ok.Value));
+        Assert.Equal(dana.Id, found.EmployeeId);
+    }
+
+    [Fact]
+    public void Search_SqlInjection_IsTreatedAsPlainText()
+    {
+        // Arrange
+        using var db = _database.NewDb();
+        var emp = new Employee { Name = "Dana Levi", AnnualQuota = 20 };
+        db.Employees.Add(emp);
+        db.SaveChanges();
+
+        db.LeaveRequests.Add(new LeaveRequest { EmployeeId = emp.Id, Type = LeaveType.Vacation, StartDate = new DateTime(2026, 3, 1), EndDate = new DateTime(2026, 3, 1), Days = 1 });
+        db.SaveChanges();
+
+        var controller = new LeaveRequestsController(new LeaveRequestService(db));
+
+        // Act: concatenated into the SQL, this turns the filter into "... OR '1'='1'".
+        var result = controller.Search("' OR '1'='1");
+
+        // Assert: no employee is called that, so nothing comes back.
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Empty(Assert.IsType<List<LeaveRequest>>(ok.Value));
+    }
+
+    [Fact]
     public void Approve_PendingRequest_Succeeds()
     {
         // Arrange
