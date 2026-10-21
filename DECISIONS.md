@@ -16,6 +16,8 @@
   - **למה:** חוק המכסה היה כתוב פעמיים (ב‑`Create` וב‑`Approve`), וכל פעם קצת אחרת. עכשיו הוא במתודה אחת (`VacationDaysUsed`) ששתי הפעולות משתמשות בה.
 - **בלי Repository.** ה‑service עובד ישירות עם `LeaveDbContext`. EF כבר משמש כשכבת הגישה ל‑DB, ו‑Repository מעליו רק היה מעביר קריאות בלי להוסיף ערך.
 - **`ServiceResult`.** ה‑service מחזיר מה קרה (הצליח / לא נמצא / שגיאה / כבר אושר), וה‑Controller מתרגם את זה לקוד HTTP (200 / 404 / 400 / 409). ככה ה‑service לא מכיר HTTP. לא בחרתי ב‑Exceptions, כי "בקשה כבר אושרה" הוא מצב צפוי ולא חריגה.
+- **Validation של הקלט על ה‑DTO.** `Type` לא נבדק, ו‑JSON מקבל כל מספר ל‑enum, כך ש‑`Type = 99` נשמר ב‑DB. הוספתי `[EnumDataType]` ל‑`CreateLeaveRequestDto`, ו‑ASP.NET מחזיר 400 אוטומטית. בדיקת הקלט נשארת על הקלט, והחוקים העסקיים (העובד קיים, יש יתרה) נמצאים ב‑service.
+  - **טסט:** `Create_UnknownLeaveType_ReturnsBadRequest` רץ דרך HTTP אמיתי (`WebApplicationFactory`), כי הבדיקה האוטומטית לא רצה כשקוראים ל‑Controller ישירות. הרצתי אותו בלי ה‑attribute והוא נכשל.
 - **בלי over‑engineering:** בלי Interface (יש מימוש אחד), בלי פרויקטים נפרדים ובלי ספריות חדשות. `EmployeesController` נשאר כמו שהוא, כי אין בו לוגיקה.
 - **ההתנהגות לא השתנתה.** בטסטים השתנתה רק השורה שיוצרת את ה‑Controller, וכולם עוברים כמו קודם. זו ההוכחה שה‑refactor לא שבר כלום.
 - **`Search` עבר ל‑service כמו שהוא.** תיקון ה‑SQL Injection שלו ייכנס בקומיט האבטחה הנפרד.
