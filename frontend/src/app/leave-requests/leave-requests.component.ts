@@ -1,6 +1,8 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, DestroyRef, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpErrorResponse } from '@angular/common/http';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject, catchError, finalize, of, switchMap, tap } from 'rxjs';
 import {
   AbstractControl,
   FormControl,
@@ -9,7 +11,17 @@ import {
   ValidationErrors,
   Validators
 } from '@angular/forms';
-import { Employee, LeaveRequest } from '../models/leave-request.model';
+import {
+  CreateLeaveRequest,
+  Employee,
+  LeaveRequest,
+  LeaveStatus,
+  LeaveType,
+  STATUS_LABELS,
+  TYPE_LABELS
+} from '../models/leave-request.model';
+import { EmployeeService } from '../services/employee.service';
+import { LeaveRequestService } from '../services/leave-request.service';
 
 // Number of calendar days between two 'yyyy-MM-dd' values, inclusive (matches the API).
 // Parsed as UTC so local time zones and DST cannot shift the result by a day.
@@ -29,8 +41,6 @@ function dateRangeValidator(group: AbstractControl): ValidationErrors | null {
   return daysBetween(start, end) < 1 ? { dateRange: true } : null;
 }
 
-// NOTE: This component was written quickly for a POC.
-// It talks to the API directly, manages state by hand and uses `any` everywhere.
 @Component({
   selector: 'app-leave-requests',
   standalone: true,
@@ -39,34 +49,65 @@ function dateRangeValidator(group: AbstractControl): ValidationErrors | null {
   styleUrls: ['./leave-requests.component.css']
 })
 export class LeaveRequestsComponent implements OnInit {
-  requests: any[] = [];
+  // Exposed so the template can compare against names instead of 0/1/2.
+  readonly LeaveType = LeaveType;
+  readonly LeaveStatus = LeaveStatus;
+
+  requests: LeaveRequest[] = [];
   loading = false;
+  // Each next() reloads the list.
+  private refresh$ = new Subject<void>();
 
   employees: Employee[] = [];
   submitting = false;
   submitError: string | null = null;
 
+  // Per row, so approving one request does not lock or hide the others.
+  approving = new Set<number>();
+  approveErrors = new Map<number, string>();
+  // Rows that show a success message until the user closes it.
+  approved = new Set<number>();
+
   // Type starts as null, not 0: 0 is Vacation, so a 0 default would count as "chosen".
   form = new FormGroup(
     {
       employeeId: new FormControl<number | null>(null, Validators.required),
-      type: new FormControl<number | null>(null, Validators.required),
+      type: new FormControl<LeaveType | null>(null, Validators.required),
       startDate: new FormControl<string>('', Validators.required),
       endDate: new FormControl<string>('', Validators.required)
     },
     { validators: dateRangeValidator }
   );
 
-  private apiUrl = 'http://localhost:5080/api/leave-requests';
-  private employeesUrl = 'http://localhost:5080/api/employees';
-
-  constructor(private http: HttpClient) {}
+  constructor(
+    private leaveRequests: LeaveRequestService,
+    private employeeService: EmployeeService,
+    private destroyRef: DestroyRef
+  ) {}
 
   ngOnInit(): void {
+    // switchMap drops an older response, so a slow reload cannot overwrite a newer list.
+    this.refresh$
+      .pipe(
+        tap(() => (this.loading = true)),
+        switchMap(() =>
+          // On failure keep the current list; the spinner must still stop.
+          this.leaveRequests.getAll().pipe(catchError(() => of(this.requests)))
+        ),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((data) => {
+        this.requests = data;
+        this.loading = false;
+      });
     this.load();
-    this.http.get<Employee[]>(this.employeesUrl).subscribe((data) => {
-      this.employees = data;
-    });
+
+    this.employeeService
+      .getAll()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((data) => {
+        this.employees = data;
+      });
   }
 
   // Shown only after the user touched the field, so a fresh form is not all red.
@@ -90,66 +131,69 @@ export class LeaveRequestsComponent implements OnInit {
       return;
     }
 
+    // The form is valid here, so the required fields are not null.
+    const { employeeId, type, startDate, endDate } = this.form.getRawValue();
+    const request: CreateLeaveRequest = {
+      employeeId: employeeId!,
+      type: type!,
+      startDate: startDate!,
+      endDate: endDate!
+    };
+
     this.submitting = true;
     this.submitError = null;
-    this.http.post(this.apiUrl, this.form.value).subscribe({
-      next: () => {
-        this.submitting = false;
-        this.form.reset();
-        this.load();
-      },
-      error: (err: HttpErrorResponse) => {
-        this.submitting = false;
-        // Business errors come back as plain text; anything else gets a generic message.
-        this.submitError = typeof err.error === 'string' ? err.error : 'Could not submit the request';
-      }
-    });
+    this.leaveRequests
+      .create(request)
+      .pipe(
+        finalize(() => (this.submitting = false)),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe({
+        next: () => {
+          this.form.reset();
+          this.load();
+        },
+        error: (err: HttpErrorResponse) => {
+          // Business errors come back as plain text; anything else gets a generic message.
+          this.submitError = typeof err.error === 'string' ? err.error : 'Could not submit the request';
+        }
+      });
   }
 
   load(): void {
-    this.loading = true;
-    this.http.get<any>(this.apiUrl).subscribe((data) => {
-      this.requests = data;
-      this.loading = false;
-    });
+    this.refresh$.next();
   }
-
-  // Per row, so approving one request does not lock or hide the others.
-  approving = new Set<number>();
-  approveErrors = new Map<number, string>();
-  // Rows that show a success message until the user closes it.
-  approved = new Set<number>();
 
   approve(request: LeaveRequest): void {
     this.approving.add(request.id);
     this.approveErrors.delete(request.id);
-    this.http.post<LeaveRequest>(this.apiUrl + '/' + request.id + '/approve', {}).subscribe({
-      next: (updated) => {
-        this.approving.delete(request.id);
-        // Update only this row from the response instead of reloading the whole list.
-        request.status = updated.status;
-        this.approved.add(request.id);
-      },
-      error: (err: HttpErrorResponse) => {
-        this.approving.delete(request.id);
-        // Business errors (already approved, not enough balance) come back as plain text.
-        this.approveErrors.set(
-          request.id,
-          typeof err.error === 'string' ? err.error : 'Could not approve the request'
-        );
-      }
-    });
+    this.leaveRequests
+      .approve(request.id)
+      .pipe(
+        finalize(() => this.approving.delete(request.id)),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe({
+        next: (updated) => {
+          // Update only this row from the response instead of reloading the whole list.
+          request.status = updated.status;
+          this.approved.add(request.id);
+        },
+        error: (err: HttpErrorResponse) => {
+          // Business errors (already approved, not enough balance) come back as plain text.
+          this.approveErrors.set(
+            request.id,
+            typeof err.error === 'string' ? err.error : 'Could not approve the request'
+          );
+        }
+      });
   }
 
-  typeLabel(type: number): string {
-    if (type == 0) return 'Vacation';
-    if (type == 1) return 'Sick';
-    return 'Unpaid';
+  typeLabel(type: LeaveType): string {
+    return TYPE_LABELS[type];
   }
 
-  statusLabel(status: number): string {
-    if (status == 0) return 'Pending';
-    if (status == 1) return 'Approved';
-    return 'Rejected';
+  statusLabel(status: LeaveStatus): string {
+    return STATUS_LABELS[status];
   }
 }

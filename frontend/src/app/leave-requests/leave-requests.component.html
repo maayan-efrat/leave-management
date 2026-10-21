@@ -16,9 +16,9 @@
     Leave type
     <select formControlName="type">
       <option [ngValue]="null" disabled>-- Select leave type --</option>
-      <option [ngValue]="0">Vacation</option>
-      <option [ngValue]="1">Sick</option>
-      <option [ngValue]="2">Unpaid</option>
+      <option [ngValue]="LeaveType.Vacation">Vacation</option>
+      <option [ngValue]="LeaveType.Sick">Sick</option>
+      <option [ngValue]="LeaveType.Unpaid">Unpaid</option>
     </select>
   </label>
   <div class="error" *ngIf="showError('type')">Please select a leave type.</div>
@@ -70,7 +70,7 @@
       <td>{{ r.days }}</td>
       <td>{{ statusLabel(r.status) }}</td>
       <td>
-        <button *ngIf="r.status == 0" (click)="approve(r)" [disabled]="approving.has(r.id)">
+        <button *ngIf="r.status === LeaveStatus.Pending" (click)="approve(r)" [disabled]="approving.has(r.id)">
           <span class="spinner" *ngIf="approving.has(r.id)"></span>
           {{ approving.has(r.id) ? 'Approving...' : 'Approve' }}
         </button>
