@@ -189,11 +189,12 @@ export class LeaveRequestsComponent implements OnInit {
       });
   }
 
+  // 'Unknown' for values the API sends but this enum does not know (e.g. old rows saved before validation).
   typeLabel(type: LeaveType): string {
-    return TYPE_LABELS[type];
+    return TYPE_LABELS[type] ?? 'Unknown';
   }
 
   statusLabel(status: LeaveStatus): string {
-    return STATUS_LABELS[status];
+    return STATUS_LABELS[status] ?? 'Unknown';
   }
 }
