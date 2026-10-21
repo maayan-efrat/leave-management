@@ -61,9 +61,27 @@ public sealed class TestDatabase : IAsyncLifetime
         return db;
     }
 
+    // A second, independent connection to the database the last NewDb() created,
+    // for tests that need two concurrent transactions. PostgreSQL only.
+    public LeaveDbContext ConnectAgain()
+    {
+        var options = new DbContextOptionsBuilder<LeaveDbContext>()
+            .UseNpgsql(_postgres!.GetConnectionString());
+        return new LeaveDbContext(options.Options);
+    }
+
     public async Task DisposeAsync()
     {
         foreach (var connection in _sqliteConnections) connection.Dispose();
         if (_postgres is not null) await _postgres.DisposeAsync();
+    }
+}
+
+// A test that relies on real row locks, so it is skipped when running on SQLite.
+public sealed class PostgresFactAttribute : FactAttribute
+{
+    public PostgresFactAttribute()
+    {
+        if (TestDatabase.UseSqlite) Skip = "Needs PostgreSQL row locks";
     }
 }

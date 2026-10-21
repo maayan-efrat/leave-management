@@ -1,6 +1,7 @@
 using LeaveManagement.Api.Controllers;
 using LeaveManagement.Api.Models;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace LeaveManagement.Tests;
@@ -230,5 +231,185 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         // Assert
         var ok = Assert.IsType<OkObjectResult>(result);
         Assert.Equal(2, Assert.IsType<LeaveRequest>(ok.Value).Days);
+    }
+
+    [Fact]
+    public void Approve_PendingRequest_Succeeds()
+    {
+        // Arrange
+        using var db = _database.NewDb();
+        var emp = new Employee { Name = "Approve Emp", AnnualQuota = 20 };
+        db.Employees.Add(emp);
+        db.SaveChanges();
+
+        var request = new LeaveRequest
+        {
+            EmployeeId = emp.Id,
+            Type = LeaveType.Vacation,
+            StartDate = new DateTime(2026, 3, 1),
+            EndDate = new DateTime(2026, 3, 3),
+            Days = 3,
+            Status = LeaveStatus.Pending
+        };
+        db.LeaveRequests.Add(request);
+        db.SaveChanges();
+
+        var controller = new LeaveRequestsController(db);
+
+        // Act
+        var result = controller.Approve(request.Id);
+
+        // Assert: the new status is in the database, not only in the tracked entity.
+        Assert.IsType<OkObjectResult>(result);
+        db.ChangeTracker.Clear();
+        Assert.Equal(LeaveStatus.Approved, db.LeaveRequests.Single(r => r.Id == request.Id).Status);
+    }
+
+    [Fact]
+    public void Approve_MissingRequest_ReturnsNotFound()
+    {
+        // Arrange
+        using var db = _database.NewDb();
+        var controller = new LeaveRequestsController(db);
+
+        // Act
+        var result = controller.Approve(12345);
+
+        // Assert
+        Assert.IsType<NotFoundObjectResult>(result);
+    }
+
+    [Theory]
+    [InlineData(LeaveStatus.Approved)]
+    [InlineData(LeaveStatus.Rejected)]
+    public void Approve_AlreadyDecided_ReturnsConflict(LeaveStatus status)
+    {
+        // Arrange
+        using var db = _database.NewDb();
+        var emp = new Employee { Name = "Decided Emp", AnnualQuota = 20 };
+        db.Employees.Add(emp);
+        db.SaveChanges();
+
+        var request = new LeaveRequest
+        {
+            EmployeeId = emp.Id,
+            Type = LeaveType.Vacation,
+            StartDate = new DateTime(2026, 3, 1),
+            EndDate = new DateTime(2026, 3, 3),
+            Days = 3,
+            Status = status
+        };
+        db.LeaveRequests.Add(request);
+        db.SaveChanges();
+
+        var controller = new LeaveRequestsController(db);
+
+        // Act
+        var result = controller.Approve(request.Id);
+
+        // Assert
+        Assert.IsType<ConflictObjectResult>(result);
+        db.ChangeTracker.Clear();
+        Assert.Equal(status, db.LeaveRequests.Single(r => r.Id == request.Id).Status);
+    }
+
+    [Fact]
+    public void Approve_ExceedingQuota_ReturnsBadRequest()
+    {
+        // Arrange: 10 of 20 days approved, and a pending request for 15 more
+        // (inserted directly, as a concurrent Create could have let through).
+        using var db = _database.NewDb();
+        var emp = new Employee { Name = "Over Emp", AnnualQuota = 20 };
+        db.Employees.Add(emp);
+        db.SaveChanges();
+
+        db.LeaveRequests.Add(new LeaveRequest
+        {
+            EmployeeId = emp.Id,
+            Type = LeaveType.Vacation,
+            StartDate = new DateTime(2026, 1, 1),
+            EndDate = new DateTime(2026, 1, 10),
+            Days = 10,
+            Status = LeaveStatus.Approved
+        });
+        var pending = new LeaveRequest
+        {
+            EmployeeId = emp.Id,
+            Type = LeaveType.Vacation,
+            StartDate = new DateTime(2026, 3, 1),
+            EndDate = new DateTime(2026, 3, 15),
+            Days = 15,
+            Status = LeaveStatus.Pending
+        };
+        db.LeaveRequests.Add(pending);
+        db.SaveChanges();
+
+        var controller = new LeaveRequestsController(db);
+
+        // Act: 10 + 15 = 25 > 20.
+        var result = controller.Approve(pending.Id);
+
+        // Assert
+        Assert.IsType<BadRequestObjectResult>(result);
+        db.ChangeTracker.Clear();
+        Assert.Equal(LeaveStatus.Pending, db.LeaveRequests.Single(r => r.Id == pending.Id).Status);
+    }
+
+    [PostgresFact]
+    public async Task Approve_ConcurrentApprovals_DoNotExceedQuota()
+    {
+        // Arrange: two pending requests (10 + 15 days) that each fit the 20-day
+        // quota on their own but exceed it together.
+        using var db = _database.NewDb();
+        var emp = new Employee { Name = "Race Emp", AnnualQuota = 20 };
+        db.Employees.Add(emp);
+        db.SaveChanges();
+
+        var first = new LeaveRequest
+        {
+            EmployeeId = emp.Id,
+            Type = LeaveType.Vacation,
+            StartDate = new DateTime(2026, 3, 1),
+            EndDate = new DateTime(2026, 3, 10),
+            Days = 10,
+            Status = LeaveStatus.Pending
+        };
+        var second = new LeaveRequest
+        {
+            EmployeeId = emp.Id,
+            Type = LeaveType.Vacation,
+            StartDate = new DateTime(2026, 5, 1),
+            EndDate = new DateTime(2026, 5, 15),
+            Days = 15,
+            Status = LeaveStatus.Pending
+        };
+        db.LeaveRequests.AddRange(first, second);
+        db.SaveChanges();
+
+        // Approval #1 is in progress on its own connection: it holds the employee
+        // lock and has marked the first request approved, but not committed yet.
+        using var inProgress = _database.ConnectAgain();
+        using var transaction = inProgress.Database.BeginTransaction();
+        inProgress.Employees
+            .FromSql($"SELECT * FROM \"Employees\" WHERE \"Id\" = {emp.Id} FOR UPDATE")
+            .AsEnumerable()
+            .Single();
+        inProgress.LeaveRequests.Single(r => r.Id == first.Id).Status = LeaveStatus.Approved;
+        inProgress.SaveChanges();
+
+        // Act: approval #2 runs meanwhile on another connection.
+        using var other = _database.ConnectAgain();
+        var approveSecond = Task.Run(() => new LeaveRequestsController(other).Approve(second.Id));
+
+        // Assert: it waits for the lock instead of reading the uncommitted state...
+        var finishedFirst = await Task.WhenAny(approveSecond, Task.Delay(TimeSpan.FromSeconds(1)));
+        Assert.NotSame(approveSecond, finishedFirst);
+
+        // ...and once approval #1 commits, it sees the 10 approved days and refuses.
+        transaction.Commit();
+        Assert.IsType<BadRequestObjectResult>(await approveSecond);
+
+        db.ChangeTracker.Clear();
+        Assert.Equal(LeaveStatus.Pending, db.LeaveRequests.Single(r => r.Id == second.Id).Status);
     }
 }
